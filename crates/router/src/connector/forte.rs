@@ -15,6 +15,7 @@ use crate::{
         self,
         api::{self, ConnectorCommon, ConnectorCommonExt},
         ErrorResponse, Response,
+        storage::enums,
     }
 };
 
@@ -114,10 +115,29 @@ impl
     }
 
     fn get_url(&self, _req: &types::PaymentsAuthorizeRouterData, connectors: &settings::Connectors,) -> CustomResult<String,errors::ConnectorError> {
-        Ok(format!(
-            "{}/organizations/org_439411/locations/loc_317869/transactions/authorize",
-            api::ConnectorCommon::base_url(self, connectors)
-        ))
+        let automatic_flag = match _req.request.capture_method {
+            Some(value) => {
+                if value == enums::CaptureMethod::Automatic {
+                    "automatic"
+                } else {
+                    "manual"
+                }
+            },
+            None => {
+                "nothing"
+            }
+        };
+        if automatic_flag == "automatic" {
+            Ok(format!(
+                "{}/organizations/org_439411/locations/loc_317869/transactions/sale",
+                api::ConnectorCommon::base_url(self, connectors)
+            ))
+        } else {
+            Ok(format!(
+                "{}/organizations/org_439411/locations/loc_317869/transactions/authorize",
+                api::ConnectorCommon::base_url(self, connectors)
+            ))
+        }
     }
 
     fn get_request_body(&self, req: &types::PaymentsAuthorizeRouterData) -> CustomResult<Option<String>,errors::ConnectorError> {
