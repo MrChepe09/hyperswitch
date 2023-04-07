@@ -28,8 +28,6 @@ impl api::Payment for Forte {}
 impl api::PaymentSession for Forte {}
 impl api::ConnectorAccessToken for Forte {}
 impl api::PreVerify for Forte {}
-impl api::PaymentAuthorize for Forte {}
-impl api::PaymentSync for Forte {}
 impl api::PaymentCapture for Forte {}
 impl api::PaymentVoid for Forte {}
 impl api::Refund for Forte {}
@@ -44,13 +42,14 @@ where
         req: &types::RouterData<Flow, Request, Response>,
         _connectors: &settings::Connectors,
     ) -> CustomResult<Vec<(String, String)>, errors::ConnectorError> {
-        let mut header = vec![(
-            headers::CONTENT_TYPE.to_string(),
-            types::PaymentsAuthorizeType::get_content_type(self).to_string(),
-        )];
+        let mut headers = vec![
+            (
+                "X-Forte-Auth-Organization-Id".to_string(),
+                "org_439411".to_string(),
+            )];
         let mut api_key = self.get_auth_header(&req.connector_auth_type)?;
-        header.append(&mut api_key);
-        Ok(header)
+        headers.append(&mut api_key);
+        Ok(headers)
     }
 }
 
@@ -68,26 +67,10 @@ impl ConnectorCommon for Forte {
     }
 
     fn get_auth_header(&self, auth_type:&types::ConnectorAuthType)-> CustomResult<Vec<(String,String)>,errors::ConnectorError> {
-        let auth =  forte::ForteAuthType::try_from(auth_type)
+        let auth: forte::ForteAuthType = auth_type
+            .try_into()
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
-        Ok(vec![(headers::AUTHORIZATION.to_string(), auth.api_key)])
-    }
-
-    fn build_error_response(
-        &self,
-        res: Response,
-    ) -> CustomResult<ErrorResponse, errors::ConnectorError> {
-        let response: forte::ForteErrorResponse = res
-            .response
-            .parse_struct("ForteErrorResponse")
-            .switch()?;
-
-        Ok(ErrorResponse {
-            status_code: res.status_code,
-            code: response.code,
-            message: response.message,
-            reason: response.reason,
-        })
+        Ok(vec![(headers::AUTHORIZATION.to_string(), auth.api_key), (headers::CONTENT_TYPE.to_string(), self.common_get_content_type().to_string())])
     }
 }
 
@@ -115,6 +98,7 @@ impl
 {
 }
 
+impl api::PaymentAuthorize for Forte {}
 impl
     ConnectorIntegration<
         api::Authorize,
@@ -129,17 +113,16 @@ impl
         self.common_get_content_type()
     }
 
-    fn get_url(&self, _req: &types::PaymentsAuthorizeRouterData, _connectors: &settings::Connectors,) -> CustomResult<String,errors::ConnectorError> {
-        Err(errors::ConnectorError::NotImplemented("get_url method".to_string()).into())
+    fn get_url(&self, _req: &types::PaymentsAuthorizeRouterData, connectors: &settings::Connectors,) -> CustomResult<String,errors::ConnectorError> {
+        Ok(format!(
+            "{}/organizations/org_439411/locations/loc_317869/transactions/authorize",
+            api::ConnectorCommon::base_url(self, connectors)
+        ))
     }
 
     fn get_request_body(&self, req: &types::PaymentsAuthorizeRouterData) -> CustomResult<Option<String>,errors::ConnectorError> {
-        let req_obj = forte::FortePaymentsRequest::try_from(req)?;
         let forte_req =
-            utils::Encode::<forte::FortePaymentsRequest>::encode_to_string_of_json(
-                &req_obj,
-            )
-            .change_context(errors::ConnectorError::RequestEncodingFailed)?;
+            utils::Encode::<forte::FortePaymentsRequest>::convert_and_encode(req).change_context(errors::ConnectorError::RequestEncodingFailed)?;
         Ok(Some(forte_req))
     }
 
@@ -154,7 +137,6 @@ impl
                 .url(&types::PaymentsAuthorizeType::get_url(
                     self, req, connectors,
                 )?)
-                .attach_default_headers()
                 .headers(types::PaymentsAuthorizeType::get_headers(
                     self, req, connectors,
                 )?)
@@ -182,6 +164,7 @@ impl
     }
 }
 
+impl api::PaymentSync for Forte {}
 impl
     ConnectorIntegration<api::PSync, types::PaymentsSyncData, types::PaymentsResponseData>
     for Forte
@@ -200,10 +183,19 @@ impl
 
     fn get_url(
         &self,
-        _req: &types::PaymentsSyncRouterData,
-        _connectors: &settings::Connectors,
+        req: &types::PaymentsSyncRouterData,
+        connectors: &settings::Connectors,
     ) -> CustomResult<String, errors::ConnectorError> {
-        Err(errors::ConnectorError::NotImplemented("get_url method".to_string()).into())
+        println!("imhere");
+        let connector_payment_id = req
+            .request
+            .connector_transaction_id
+            .get_connector_transaction_id()
+            .change_context(errors::ConnectorError::MissingConnectorTransactionID)?;
+        Ok(format!(
+            "{}/organizations/org_439411/locations/loc_317869/transactions/trn_{}",
+            api::ConnectorCommon::base_url(self, connectors),connector_payment_id
+        ))
     }
 
     fn build_request(
@@ -215,7 +207,6 @@ impl
             services::RequestBuilder::new()
                 .method(services::Method::Get)
                 .url(&types::PaymentsSyncType::get_url(self, req, connectors)?)
-                .attach_default_headers()
                 .headers(types::PaymentsSyncType::get_headers(self, req, connectors)?)
                 .build(),
         ))
@@ -228,8 +219,8 @@ impl
     ) -> CustomResult<types::PaymentsSyncRouterData, errors::ConnectorError> {
         let response: forte:: FortePaymentsResponse = res
             .response
-            .parse_struct("forte PaymentsSyncResponse")
-            .switch()?;
+            .parse_struct("forte PaymentsResponse")
+            .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
         types::RouterData::try_from(types::ResponseRouterData {
             response,
             data: data.clone(),
