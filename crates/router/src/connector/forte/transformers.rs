@@ -19,6 +19,44 @@ pub struct FortePaymentsRequest {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForteCaptureRequest {
+    action: String,
+    transaction_id: String,
+    authorization_code: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForteCancelRequest {
+    action: String,
+    transaction_id: String,
+    authorization_code: String,
+    entered_by: String,
+}
+
+impl TryFrom<&types::PaymentsCaptureRouterData> for ForteCaptureRequest{
+    type Error = error_stack::Report<errors::ConnectorError>;
+    fn try_from(item: &types::PaymentsCaptureRouterData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            action: "capture".to_string(),
+            transaction_id: item.request.connector_transaction_id.clone(),
+            authorization_code: "0SF381".to_string(),
+        })
+    }
+}
+
+impl TryFrom<&types::PaymentsCancelRouterData> for ForteCancelRequest{
+    type Error = error_stack::Report<errors::ConnectorError>;
+    fn try_from(item: &types::PaymentsCancelRouterData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            action: "void".to_string(),
+            transaction_id: item.request.connector_transaction_id.clone(),
+            authorization_code: "33717372".to_string(),
+            entered_by: "bhupinder_singh".to_string(),
+        })
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 pub struct ForteCard {
     card_type: String,
@@ -58,6 +96,30 @@ pub struct FortePaymentsResponse {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 // #[serde(rename_all = "camelCase")]
+pub struct ForteCapturePaymentsResponse {
+    pub transaction_id: String,
+    pub location_id: String,
+    pub original_transaction_id: String,
+    pub action: String,
+    pub authorization_code: String,
+    pub entered_by: String,
+    pub response: CaptureResponse,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+pub struct ForteCancelPaymentsResponse {
+    pub transaction_id: String,
+    pub location_id: String,
+    pub action: String,
+    pub authorization_code: String,
+    pub entered_by: String,
+    pub response: CancelResponse,
+    pub links: Links,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
 pub struct Response {
     pub environment: String,
     pub response_type: String,
@@ -66,6 +128,26 @@ pub struct Response {
     pub authorization_code: String,
     pub avs_result: String,
     pub cvv_result: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+pub struct CaptureResponse {
+    pub environment: String,
+    pub response_type: String,
+    pub response_code: String,
+    pub response_desc: String,
+    pub authorization_code: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+pub struct CancelResponse {
+    pub environment: String,
+    pub response_type: String,
+    pub response_code: String,
+    pub response_desc: String,
+    pub authorization_code: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,9 +213,9 @@ impl TryFrom<&types::ConnectorAuthType> for ForteAuthType  {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum FortePaymentStatus {
+    #[default]
     Succeeded,
     Failed,
-    #[default]
     Processing,
 }
 
@@ -150,9 +232,43 @@ pub enum FortePaymentStatus {
 impl<F,T> TryFrom<types::ResponseRouterData<F, FortePaymentsResponse, T, types::PaymentsResponseData>> for types::RouterData<F, T, types::PaymentsResponseData> {
     type Error = error_stack::Report<errors::ParsingError>;
     fn try_from(item: types::ResponseRouterData<F, FortePaymentsResponse, T, types::PaymentsResponseData>) -> Result<Self,Self::Error> {
-        let status_string = String::from(item.response.response.response_desc);
+        let status_string = String::from(item.response.action);
         Ok(Self {
-            status: if status_string == "APPROVAL" {  enums::AttemptStatus::Authorized} else { enums::AttemptStatus::Pending },
+            status: if status_string == "authorize" {  enums::AttemptStatus::Authorized} else { enums::AttemptStatus::Charged },
+            response: Ok(types::PaymentsResponseData::TransactionResponse {
+                resource_id: types::ResponseId::ConnectorTransactionId(item.response.transaction_id),
+                redirection_data: None,
+                mandate_reference: None,
+                connector_metadata: None,
+            }),
+            ..item.data
+        })
+    }
+}
+
+impl<F,T> TryFrom<types::ResponseRouterData<F, ForteCapturePaymentsResponse, T, types::PaymentsResponseData>> for types::RouterData<F, T, types::PaymentsResponseData> {
+    type Error = error_stack::Report<errors::ParsingError>;
+    fn try_from(item: types::ResponseRouterData<F, ForteCapturePaymentsResponse, T, types::PaymentsResponseData>) -> Result<Self,Self::Error> {
+        let status_string = String::from(item.response.action);
+        Ok(Self {
+            status: if status_string == "authorize" {  enums::AttemptStatus::Authorized} else { enums::AttemptStatus::Charged },
+            response: Ok(types::PaymentsResponseData::TransactionResponse {
+                resource_id: types::ResponseId::ConnectorTransactionId(item.response.transaction_id),
+                redirection_data: None,
+                mandate_reference: None,
+                connector_metadata: None,
+            }),
+            ..item.data
+        })
+    }
+}
+
+impl<F,T> TryFrom<types::ResponseRouterData<F, ForteCancelPaymentsResponse, T, types::PaymentsResponseData>> for types::RouterData<F, T, types::PaymentsResponseData> {
+    type Error = error_stack::Report<errors::ParsingError>;
+    fn try_from(item: types::ResponseRouterData<F, ForteCancelPaymentsResponse, T, types::PaymentsResponseData>) -> Result<Self,Self::Error> {
+        let status_string = String::from(item.response.action);
+        Ok(Self {
+            status: if status_string == "void" {  enums::AttemptStatus::Voided} else { enums::AttemptStatus::Failure },
             response: Ok(types::PaymentsResponseData::TransactionResponse {
                 resource_id: types::ResponseId::ConnectorTransactionId(item.response.transaction_id),
                 redirection_data: None,
